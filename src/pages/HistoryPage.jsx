@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDB } from '../hooks/useDB';
 
 export default function HistoryPage() {
   const [reminders, setReminders] = useState([]);
   const [filter, setFilter] = useState('all');
   const { getReminders, deleteReminder, updateReminder } = useDB();
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadReminders();
+
+    const interval = setInterval(loadReminders, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadReminders = async () => {
@@ -16,12 +21,14 @@ export default function HistoryPage() {
     setReminders(all);
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (e, id) => {
+    e.stopPropagation();
     await deleteReminder(id);
     loadReminders();
   };
 
-  const handleMarkDone = async (id) => {
+  const handleMarkDone = async (e, id) => {
+    e.stopPropagation();
     await updateReminder(id, { status: 'reminded' });
     loadReminders();
   };
@@ -55,11 +62,9 @@ export default function HistoryPage() {
 
       <ul className="history-list">
         {filtered.map((r) => (
-          <li key={r.id} className="history-item">
+          <li key={r.id} className="history-item" onClick={() => navigate(`/reminder/${r.id}`)}>
             <div className="history-item-content">
-              <a href={r.url} target="_blank" rel="noopener noreferrer" className="history-link">
-                {r.title || r.url}
-              </a>
+              <span className="history-link">{r.title || r.url}</span>
               <div className="history-meta">
                 <span className={`status-badge ${r.status}`}>
                   {r.status === 'pending' ? 'Pending' : 'Done'}
@@ -78,7 +83,7 @@ export default function HistoryPage() {
               {r.status === 'pending' && (
                 <button
                   className="action-btn done-btn"
-                  onClick={() => handleMarkDone(r.id)}
+                  onClick={(e) => handleMarkDone(e, r.id)}
                   aria-label="Mark as done"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -88,7 +93,7 @@ export default function HistoryPage() {
               )}
               <button
                 className="action-btn delete-btn"
-                onClick={() => handleDelete(r.id)}
+                onClick={(e) => handleDelete(e, r.id)}
                 aria-label="Delete"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

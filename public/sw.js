@@ -49,17 +49,20 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url;
-  if (url) {
-    event.waitUntil(
-      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-        for (const client of clientList) {
-          if (client.url.includes(self.location.origin) && 'focus' in client) {
-            return client.focus();
-          }
+  const data = event.notification.data ?? {};
+  const reminderId = data.id;
+  const origin = self.location.origin;
+
+  event.waitUntil(
+    (async () => {
+      const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of clientList) {
+        if (client.url.includes(origin) && 'navigate' in client && 'focus' in client) {
+          await client.navigate(`${origin}/reminder/${reminderId}`);
+          return client.focus();
         }
-        return clients.openWindow(url);
-      })
-    );
-  }
+      }
+      return clients.openWindow(`${origin}/reminder/${reminderId}`);
+    })()
+  );
 });
