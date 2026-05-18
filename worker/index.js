@@ -30,51 +30,32 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    await initDb(env);
+    try {
+      const url = new URL(request.url);
 
-    const url = new URL(request.url);
+      if (url.pathname === '/reminders' && request.method === 'POST') {
+        return await handleSaveReminder(request, env);
+      }
 
-    if (url.pathname === '/reminders' && request.method === 'POST') {
-      return handleSaveReminder(request, env);
+      if (url.pathname === '/reminders' && request.method === 'GET') {
+        return await handleListReminders(env);
+      }
+
+      if (url.pathname === '/process' && request.method === 'POST') {
+        return await handleProcess(env);
+      }
+
+      return json({ error: 'Not found' }, 404);
+    } catch (err) {
+      console.error('Worker error:', err);
+      return json({ error: 'Internal server error', details: err.message }, 500);
     }
-
-    if (url.pathname === '/reminders' && request.method === 'GET') {
-      return handleListReminders(env);
-    }
-
-    if (url.pathname === '/process' && request.method === 'POST') {
-      return handleProcess(env);
-    }
-
-    return json({ error: 'Not found' }, 404);
   },
 
   async scheduled(_event, env) {
-    await initDb(env);
     await processDueReminders(env);
   },
 };
-
-async function initDb(env) {
-  await env.DB.exec(`
-    CREATE TABLE IF NOT EXISTS reminders (
-      id TEXT PRIMARY KEY,
-      fcmToken TEXT NOT NULL,
-      url TEXT NOT NULL,
-      title TEXT NOT NULL,
-      scheduledFor TEXT NOT NULL,
-      repeat TEXT NOT NULL DEFAULT 'none',
-      status TEXT NOT NULL DEFAULT 'pending',
-      createdAt TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_reminders_status_scheduled ON reminders(status, scheduledFor);
-    CREATE TABLE IF NOT EXISTS fcm_token_cache (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      access_token TEXT NOT NULL,
-      expires_at INTEGER NOT NULL
-    );
-  `);
-}
 
 async function handleSaveReminder(request, env) {
   let body;
