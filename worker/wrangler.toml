@@ -2,15 +2,16 @@ name = "remind-me-worker"
 main = "index.js"
 compatibility_date = "2024-01-01"
 
-# Cron trigger — fires every minute to dispatch due reminders
+# Cron trigger — fires every 5 minutes to dispatch due reminders
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/5 * * * *"]
 
-# KV namespace — create with: wrangler kv:namespace create REMINDERS
-# Then replace the id below with the one wrangler prints
-[[kv_namespaces]]
-binding = "REMINDERS"
-id = "89f29654c5154bf697854feadf543436"
+# D1 database — create with: wrangler d1 create remind-me-db
+# Then replace the database_id below with the one wrangler prints
+[[d1_databases]]
+binding = "DB"
+database_name = "remind-me-db"
+database_id = "26789eed-d189-4b3e-952c-9e216d8569fb"
 
 # Secrets (set via CLI, never committed):
 #   wrangler secret put FIREBASE_PROJECT_ID

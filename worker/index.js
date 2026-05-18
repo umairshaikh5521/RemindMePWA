@@ -1,15 +1,16 @@
 /**
- * Cloudflare Worker — Remind Me FCM scheduler
+ * Cloudflare Worker — Remind Me FCM scheduler (D1 version)
  *
  * Environment variables / secrets required (set via `wrangler secret put`):
  *   FIREBASE_PROJECT_ID        — e.g. "remindme-f1a8b"
  *   FIREBASE_CLIENT_EMAIL      — from service account JSON
  *   FIREBASE_PRIVATE_KEY       — from service account JSON (the full PEM string)
  *
- * KV namespace binding required (wrangler.toml):
- *   [[kv_namespaces]]
- *   binding = "REMINDERS"
- *   id = "<your KV namespace id>"
+ * D1 database binding required (wrangler.toml):
+ *   [[d1_databases]]
+ *   binding = "DB"
+ *   database_name = "remind-me-db"
+ *   database_id = "<your database id>"
  *
  * Routes handled:
  *   POST /reminders        — save a reminder (body: { id, fcmToken, url, title, scheduledFor, repeat })
@@ -29,6 +30,8 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    await initDb(env);
+
     const url = new URL(request.url);
 
     if (url.pathname === '/reminders' && request.method === 'POST') {
@@ -47,9 +50,31 @@ export default {
   },
 
   async scheduled(_event, env) {
+    await initDb(env);
     await processDueReminders(env);
   },
 };
+
+async function initDb(env) {
+  await env.DB.exec(`
+    CREATE TABLE IF NOT EXISTS reminders (
+      id TEXT PRIMARY KEY,
+      fcmToken TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT NOT NULL,
+      scheduledFor TEXT NOT NULL,
+      repeat TEXT NOT NULL DEFAULT 'none',
+      status TEXT NOT NULL DEFAULT 'pending',
+      createdAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reminders_status_scheduled ON reminders(status, scheduledFor);
+    CREATE TABLE IF NOT EXISTS fcm_token_cache (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      access_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+  `);
+}
 
 async function handleSaveReminder(request, env) {
   let body;
@@ -64,30 +89,18 @@ async function handleSaveReminder(request, env) {
     return json({ error: 'Missing required fields: id, fcmToken, url, scheduledFor' }, 400);
   }
 
-  const reminder = {
-    id,
-    fcmToken,
-    url: reminderUrl,
-    title: title || reminderUrl,
-    scheduledFor,
-    repeat: repeat || 'none',
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  };
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO reminders (id, fcmToken, url, title, scheduledFor, repeat, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  )
+    .bind(id, fcmToken, reminderUrl, title || reminderUrl, scheduledFor, repeat || 'none', 'pending', new Date().toISOString())
+    .run();
 
-  await env.REMINDERS.put(`reminder:${id}`, JSON.stringify(reminder));
   return json({ ok: true, id }, 201);
 }
 
 async function handleListReminders(env) {
-  const list = await env.REMINDERS.list({ prefix: 'reminder:' });
-  const reminders = await Promise.all(
-    list.keys.map(async (k) => {
-      const val = await env.REMINDERS.get(k.name);
-      return val ? JSON.parse(val) : null;
-    })
-  );
-  return json(reminders.filter(Boolean));
+  const { results } = await env.DB.prepare('SELECT * FROM reminders').all();
+  return json(results);
 }
 
 async function handleProcess(env) {
@@ -96,26 +109,30 @@ async function handleProcess(env) {
 }
 
 async function processDueReminders(env) {
-  const now = Date.now();
-  const list = await env.REMINDERS.list({ prefix: 'reminder:' });
+  const now = new Date().toISOString();
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM reminders WHERE status = ? AND scheduledFor <= ?'
+  )
+    .bind('pending', now)
+    .all();
 
   let sent = 0;
-  for (const key of list.keys) {
-    const raw = await env.REMINDERS.get(key.name);
-    if (!raw) continue;
-
-    const reminder = JSON.parse(raw);
-    if (reminder.status !== 'pending') continue;
-    if (new Date(reminder.scheduledFor).getTime() > now) continue;
-
+  for (const reminder of results) {
     const success = await sendFcmNotification(env, reminder);
     if (success) {
       if (reminder.repeat && reminder.repeat !== 'none') {
-        reminder.scheduledFor = getNextOccurrence(reminder.scheduledFor, reminder.repeat);
-        await env.REMINDERS.put(key.name, JSON.stringify(reminder));
+        const nextDate = getNextOccurrence(reminder.scheduledFor, reminder.repeat);
+        await env.DB.prepare(
+          'UPDATE reminders SET scheduledFor = ? WHERE id = ?'
+        )
+          .bind(nextDate, reminder.id)
+          .run();
       } else {
-        reminder.status = 'reminded';
-        await env.REMINDERS.put(key.name, JSON.stringify(reminder));
+        await env.DB.prepare(
+          'UPDATE reminders SET status = ? WHERE id = ?'
+        )
+          .bind('reminded', reminder.id)
+          .run();
       }
       sent++;
     }
@@ -179,6 +196,11 @@ async function sendFcmNotification(env, reminder) {
 }
 
 async function getGoogleAccessToken(env) {
+  const cached = await env.DB.prepare('SELECT access_token, expires_at FROM fcm_token_cache WHERE id = 1').first();
+  if (cached && cached.expires_at > Date.now() / 1000 + 60) {
+    return cached.access_token;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   const claim = {
     iss: env.FIREBASE_CLIENT_EMAIL,
@@ -201,6 +223,14 @@ async function getGoogleAccessToken(env) {
 
   const data = await res.json();
   if (!data.access_token) throw new Error('Failed to get access token: ' + JSON.stringify(data));
+
+  const expiresAt = now + (data.expires_in || 3600);
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO fcm_token_cache (id, access_token, expires_at) VALUES (1, ?, ?)'
+  )
+    .bind(data.access_token, expiresAt)
+    .run();
+
   return data.access_token;
 }
 
