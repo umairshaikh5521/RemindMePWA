@@ -52,17 +52,7 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data ?? {};
   const reminderId = data.id;
   const origin = self.location.origin;
+  const targetUrl = reminderId ? `${origin}/reminder/${reminderId}` : `${origin}/`;
 
-  event.waitUntil(
-    (async () => {
-      const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const client of clientList) {
-        if (client.url.includes(origin) && 'navigate' in client && 'focus' in client) {
-          await client.navigate(`${origin}/reminder/${reminderId}`);
-          return client.focus();
-        }
-      }
-      return clients.openWindow(`${origin}/reminder/${reminderId}`);
-    })()
-  );
+  event.waitUntil(clients.openWindow(targetUrl));
 });

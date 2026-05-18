@@ -15,7 +15,7 @@ export default function SharePage() {
     const extractedUrl = extractInstagramUrl(url || text) || url || text;
 
     if (extractedUrl) {
-      setShareData({ url: extractedUrl, title: title || extractedUrl });
+      setShareData({ url: extractedUrl, title: title || '' });
     } else {
       navigate('/');
     }
