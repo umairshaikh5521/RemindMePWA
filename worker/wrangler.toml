@@ -1,0 +1,18 @@
+name = "remind-me-worker"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# Cron trigger — fires every minute to dispatch due reminders
+[triggers]
+crons = ["* * * * *"]
+
+# KV namespace — create with: wrangler kv:namespace create REMINDERS
+# Then replace the id below with the one wrangler prints
+[[kv_namespaces]]
+binding = "REMINDERS"
+id = "89f29654c5154bf697854feadf543436"
+
+# Secrets (set via CLI, never committed):
+#   wrangler secret put FIREBASE_PROJECT_ID
+#   wrangler secret put FIREBASE_CLIENT_EMAIL
+#   wrangler secret put FIREBASE_PRIVATE_KEY
