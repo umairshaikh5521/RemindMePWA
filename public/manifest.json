@@ -1,6 +1,6 @@
 {
   "name": "Remind Me",
-  "short_name": "RemindMe",
+  "short_name": "Remind",
   "description": "Save links and get reminded later",
   "start_url": "/",
   "display": "standalone",
